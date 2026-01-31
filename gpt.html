@@ -1,0 +1,123 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Mic Amp / Freq / Time</title>
+  <style>
+    body {
+      background: #0f0f0f;
+      color: #eaeaea;
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 16px;
+    }
+
+    h1 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 200px;
+      background: #111;
+      border: 1px solid #333;
+      margin-bottom: 12px;
+    }
+
+    button {
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Amplitude / Frequency / Time (Microphone)</h1>
+  <button id="start">Start microphone</button>
+
+  <canvas id="time"></canvas>
+  <canvas id="freq"></canvas>
+
+  <script>
+    const startBtn = document.getElementById("start");
+    const timeCanvas = document.getElementById("time");
+    const freqCanvas = document.getElementById("freq");
+
+    const timeCtx = timeCanvas.getContext("2d");
+    const freqCtx = freqCanvas.getContext("2d");
+
+    function resizeCanvas(canvas) {
+      canvas.width = canvas.clientWidth * devicePixelRatio;
+      canvas.height = canvas.clientHeight * devicePixelRatio;
+    }
+
+    resizeCanvas(timeCanvas);
+    resizeCanvas(freqCanvas);
+
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+
+      source.connect(analyser);
+
+      const timeData = new Uint8Array(analyser.fftSize);
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      function draw() {
+        requestAnimationFrame(draw);
+
+        // ---- Time domain (Amplitude vs Time) ----
+        analyser.getByteTimeDomainData(timeData);
+
+        timeCtx.clearRect(0, 0, timeCanvas.width, timeCanvas.height);
+        timeCtx.beginPath();
+        timeCtx.strokeStyle = "#4ade80";
+
+        const step = timeCanvas.width / timeData.length;
+        let x = 0;
+
+        for (let i = 0; i < timeData.length; i++) {
+          const v = timeData[i] / 128.0;
+          const y = (v * timeCanvas.height) / 2;
+          i === 0 ? timeCtx.moveTo(x, y) : timeCtx.lineTo(x, y);
+          x += step;
+        }
+
+        timeCtx.stroke();
+
+        // ---- Frequency domain (Amplitude vs Frequency) ----
+        analyser.getByteFrequencyData(freqData);
+
+        freqCtx.clearRect(0, 0, freqCanvas.width, freqCanvas.height);
+
+        const barWidth = freqCanvas.width / freqData.length;
+        for (let i = 0; i < freqData.length; i++) {
+          const value = freqData[i];
+          const barHeight = (value / 255) * freqCanvas.height;
+          freqCtx.fillStyle = "#60a5fa";
+          freqCtx.fillRect(
+            i * barWidth,
+            freqCanvas.height - barHeight,
+            barWidth,
+            barHeight
+          );
+        }
+      }
+
+      draw();
+    };
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Microphone → Spectrogram + Waveform</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      background: #0a0a0e;
+      color: #8af;
+      margin: 10px;
+    }
+
+    canvas {
+      background: #000;
+      border: 1px solid #444;
+      margin: 8px 0;
+      display: block;
+    }
+
+    .controls {
+      margin: 15px 0;
+    }
+
+    button {
+      padding: 10px 18px;
+      font-size: 1.1rem;
+      margin-right: 12px;
+      cursor: pointer;
+    }
+
+    #status {
+      color: #ff9800;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>Microphone Live Spectrogram + Waveform</h2>
+
+  <div class="controls">
+    <button onclick="startMic()">Start Microphone</button>
+    <button onclick="stopMic()">Stop</button>
+    <span id="status">— not started —</span>
+  </div>
+
+  <h3>Waveform (time domain)</h3>
+  <canvas id="waveform" width="900" height="160"></canvas>
+
+  <h3>Spectrogram (frequency vs time)</h3>
+  <canvas id="spectrogram" width="900" height="260"></canvas>
+
+  <script>
+    // ────────────────────────────────────────────────
+    const canvasW = document.getElementById('waveform');
+    const ctxW = canvasW.getContext('2d');
+
+    const canvasS = document.getElementById('spectrogram');
+    const ctxS = canvasS.getContext('2d');
+
+    let audioContext = null;
+    let analyser = null;
+    let microphone = null;
+    let scriptProcessor = null;
+    let running = false;
+
+    const fftSize = 2048;           // 1024, 2048, 4096...
+    const bufferSize = 2048;
+    const sampleRate = 44100;          // will be overwritten by real value
+
+    let history = [];                     // for spectrogram scrolling
+    const historyLines = 300;             // how many lines (time slices) to keep
+
+    // Color gradient for spectrogram (low → high energy)
+    const colors = [
+      [0, '#020008'],     // black / very quiet
+      [8, '#19004d'],
+      [20, '#330066'],
+      [40, '#6600cc'],
+      [70, '#9900ff'],
+      [100, '#ff00aa'],
+      [140, '#ff4400'],
+      [180, '#ffff00'],
+      [220, '#ffffff']      // very loud
+    ];
+
+    function getColor(value) {
+      value = Math.min(255, Math.max(0, value));
+      for (let i = 1; i < colors.length; i++) {
+        if (value <= colors[i][0]) {
+          const prev = colors[i - 1];
+          const next = colors[i];
+          const t = (value - prev[0]) / (next[0] - prev[0]);
+          return interpolateColor(prev[1], next[1], t);
+        }
+      }
+      return colors[colors.length - 1][1];
+    }
+
+    function interpolateColor(c1, c2, t) {
+      c1 = hexToRgb(c1);
+      c2 = hexToRgb(c2);
+      const r = Math.round(c1.r + t * (c2.r - c1.r));
+      const g = Math.round(c1.g + t * (c2.g - c1.g));
+      const b = Math.round(c1.b + t * (c2.b - c1.b));
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function hexToRgb(hex) {
+      const bigint = parseInt(hex.slice(1), 16);
+      return {
+        r: (bigint >> 16) & 255,
+        g: (bigint >> 8) & 255,
+        b: bigint & 255
+      };
+    }
+
+    // ────────────────────────────────────────────────
+    async function startMic() {
+      if (running) return;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        document.getElementById('status').textContent = "Microphone active";
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        microphone = audioContext.createMediaStreamSource(stream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = fftSize;
+        analyser.smoothingTimeConstant = 0.85;
+
+        scriptProcessor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+        microphone.connect(analyser);
+        analyser.connect(scriptProcessor);
+        scriptProcessor.connect(audioContext.destination); // required in some browsers
+
+        scriptProcessor.onaudioprocess = onAudioProcess;
+        running = true;
+
+      } catch (err) {
+        document.getElementById('status').textContent = "Error: " + err.message;
+        console.error(err);
+      }
+    }
+
+    function stopMic() {
+      running = false;
+      if (scriptProcessor) scriptProcessor.onaudioprocess = null;
+      if (audioContext) audioContext.close().catch(console.warn);
+      document.getElementById('status').textContent = "Stopped";
+    }
+
+    // ────────────────────────────────────────────────
+    function onAudioProcess(e) {
+      if (!running) return;
+
+      // Waveform (time domain)
+      const timeData = new Uint8Array(analyser.fftSize);
+      analyser.getByteTimeDomainData(timeData);
+
+      ctxW.fillStyle = "#000";
+      ctxW.fillRect(0, 0, canvasW.width, canvasW.height);
+
+      ctxW.strokeStyle = "#8f8";
+      ctxW.lineWidth = 1.5;
+      ctxW.beginPath();
+
+      const sliceWidth = canvasW.width / analyser.fftSize;
+      let x = 0;
+
+      for (let i = 0; i < analyser.fftSize; i++) {
+        const v = timeData[i] / 128.0;
+        const y = (v * canvasW.height / 2) * 0.9 + canvasW.height * 0.05;
+
+        if (i === 0) ctxW.moveTo(x, y);
+        else ctxW.lineTo(x, y);
+
+        x += sliceWidth;
+      }
+      ctxW.stroke();
+
+      // Spectrogram (frequency domain)
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(freqData);
+
+      // Add new line to history
+      history.push([...freqData]);
+      if (history.length > historyLines) history.shift();
+
+      // Draw whole history
+      const w = canvasS.width;
+      const h = canvasS.height;
+      const lineHeight = h / historyLines;
+
+      ctxS.fillStyle = "#000";
+      ctxS.fillRect(0, 0, w, h);
+
+      for (let y = 0; y < history.length; y++) {
+        const data = history[y];
+        const py = h - (y + 1) * lineHeight;   // newest at bottom
+
+        for (let x = 0; x < data.length; x++) {
+          const val = data[x];
+          const hueVal = val * 0.7 + 30;       // scale to look nicer
+          ctxS.fillStyle = getColor(hueVal);
+          ctxS.fillRect(x * w / data.length, py, w / data.length + 1, lineHeight + 1);
+        }
+      }
+    }
+
+  </script>
+</body>
+
+</html>

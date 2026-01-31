@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Simple Audio Spectrogram</title>
+  <style>
+    body {
+      background: #111;
+      color: white;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      overflow: hidden;
+    }
+
+    canvas {
+      border: 1px solid #444;
+      width: 90vw;
+      height: 70vh;
+      image-rendering: pixelated;
+    }
+
+    button {
+      padding: 15px 30px;
+      font-size: 1.2rem;
+      cursor: pointer;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+
+    p {
+      color: #888;
+    }
+  </style>
+</head>
+
+<body>
+
+  <button id="startBtn">Start Microphone</button>
+  <p>X = Time | Y = Frequency | Color = Amplitude</p>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Browser requires user interaction to start AudioContext
+    startBtn.onclick = async () => {
+      startBtn.style.display = 'none';
+
+      try {
+        // 1. Setup Audio Input
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+
+        analyser.fftSize = 1024; // Resolution of frequencies
+        source.connect(analyser);
+
+        const bufferLength = analyser.frequencyBinCount; // half of fftSize
+        const dataArray = new Uint8Array(bufferLength);
+
+        // 2. Setup Canvas dimensions
+        canvas.width = 800;
+        canvas.height = bufferLength; // Each pixel height corresponds to a frequency bin
+
+        function draw() {
+          requestAnimationFrame(draw);
+
+          // Get frequency data (Amplitude for each Frequency)
+          analyser.getByteFrequencyData(dataArray);
+
+          // 3. Scroll the canvas: Move existing image to the left by 1 pixel
+          const imageData = ctx.getImageData(1, 0, canvas.width - 1, canvas.height);
+          ctx.putImageData(imageData, 0, 0);
+
+          // 4. Draw the new vertical line of data at the far right
+          for (let i = 0; i < bufferLength; i++) {
+            const amplitude = dataArray[i];
+
+            // Create a "Heatmap" color (Honeymoon style: Black -> Blue -> Red -> Yellow)
+            // Simple hue-based mapping:
+            ctx.fillStyle = `rgb(${amplitude}, ${amplitude / 2}, ${255 - amplitude})`;
+
+            // Draw 1x1 pixel at (right edge, frequency position)
+            // Note: i=0 is low frequency, so we flip it to be at bottom
+            ctx.fillRect(canvas.width - 1, canvas.height - i, 1, 1);
+          }
+        }
+
+        draw();
+      } catch (err) {
+        alert("Microphone access denied or not supported.");
+        console.error(err);
+      }
+    };
+  </script>
+</body>
+
+</html>
