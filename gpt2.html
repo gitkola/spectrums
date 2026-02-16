@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Isometric Audio Landscape</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0b0b0b;
+      color: #eaeaea;
+      font-family: system-ui, sans-serif;
+    }
+
+    header {
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: calc(100vh - 56px);
+    }
+
+    button {
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <button id="start">Start microphone</button>
+    <span>Isometric Amp / Freq / Time landscape</span>
+  </header>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("start");
+
+    function resize() {
+      canvas.width = canvas.clientWidth * devicePixelRatio;
+      canvas.height = canvas.clientHeight * devicePixelRatio;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    const HISTORY = 120;          // time depth
+    const FREQ_BINS = 64;         // downsampled spectrum
+    const HEIGHT_SCALE = 0.8;
+
+    const landscape = Array.from({ length: HISTORY }, () =>
+      new Float32Array(FREQ_BINS)
+    );
+
+    function isoProject(x, y, z) {
+      return {
+        x: (x - y) * 0.866,
+        y: (x + y) * 0.5 - z
+      };
+    }
+
+    function drawLandscape() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height * 0.75);
+
+      for (let t = HISTORY - 1; t >= 0; t--) {
+        for (let f = 0; f < FREQ_BINS - 1; f++) {
+          const a1 = landscape[t][f];
+          const a2 = landscape[t][f + 1];
+
+          const p1 = isoProject(
+            f * 8,
+            t * 6,
+            a1 * HEIGHT_SCALE
+          );
+          const p2 = isoProject(
+            (f + 1) * 8,
+            t * 6,
+            a2 * HEIGHT_SCALE
+          );
+
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+
+          const intensity = Math.min(255, a1 * 1.2);
+          ctx.strokeStyle = `rgb(${intensity},${150},${255 - intensity})`;
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+    }
+
+    startBtn.onclick = async () => {
+      startBtn.disabled = true;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new AudioContext();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+      function update() {
+        requestAnimationFrame(update);
+
+        analyser.getByteFrequencyData(freqData);
+
+        // shift history
+        for (let i = HISTORY - 1; i > 0; i--) {
+          landscape[i].set(landscape[i - 1]);
+        }
+
+        // downsample spectrum
+        const step = Math.floor(freqData.length / FREQ_BINS);
+        for (let i = 0; i < FREQ_BINS; i++) {
+          landscape[0][i] = freqData[i * step];
+        }
+
+        drawLandscape();
+      }
+
+      update();
+    };
+  </script>
+</body>
+
+</html>

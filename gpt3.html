@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Isometric Audio Landscape</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0b0b0b;
+      color: #ddd;
+      font-family: system-ui, sans-serif;
+    }
+
+    header {
+      padding: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    canvas {
+      width: 100vw;
+      height: calc(100vh - 48px);
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <button id="start">Start microphone</button>
+    <span>Drag=Rotate · Shift+Drag=Pan · Wheel=Zoom · Space=Freeze</span>
+  </header>
+  <canvas id="c"></canvas>
+
+  <script>
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+
+    function resize() {
+      canvas.width = canvas.clientWidth * devicePixelRatio;
+      canvas.height = canvas.clientHeight * devicePixelRatio;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    /* --------- Audio params --------- */
+    const HISTORY = 120;
+    const BINS = 64;
+
+    /* --------- Camera --------- */
+    let cam = {
+      rotX: -0.6,
+      rotY: 0.8,
+      zoom: 1,
+      panX: 0,
+      panY: 0
+    };
+
+    let frozen = false;
+
+    /* --------- Data --------- */
+    const landscape = Array.from({ length: HISTORY }, () =>
+      new Float32Array(BINS)
+    );
+
+    /* --------- Math --------- */
+    function rotateX(p, a) {
+      const c = Math.cos(a), s = Math.sin(a);
+      return { x: p.x, y: p.y * c - p.z * s, z: p.y * s + p.z * c };
+    }
+    function rotateY(p, a) {
+      const c = Math.cos(a), s = Math.sin(a);
+      return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c };
+    }
+
+    function project(p) {
+      let v = rotateX(p, cam.rotX);
+      v = rotateY(v, cam.rotY);
+
+      return {
+        x: (v.x - v.y) * cam.zoom + cam.panX,
+        y: (v.x + v.y) * 0.5 * cam.zoom - v.z * cam.zoom + cam.panY
+      };
+    }
+
+    /* --------- Render --------- */
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height * 0.65);
+
+      for (let t = HISTORY - 1; t >= 0; t--) {
+        for (let f = 0; f < BINS - 1; f++) {
+          const a1 = landscape[t][f];
+          const a2 = landscape[t][f + 1];
+
+          const p1 = project({
+            x: f * 8,
+            y: t * 6,
+            z: a1
+          });
+          const p2 = project({
+            x: (f + 1) * 8,
+            y: t * 6,
+            z: a2
+          });
+
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+
+          const c = Math.min(255, a1 * 1.4);
+          ctx.strokeStyle = `rgb(${c},${180},${255 - c})`;
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    /* --------- Interaction --------- */
+    let dragging = false;
+    let lastX = 0, lastY = 0;
+
+    canvas.addEventListener("mousedown", e => {
+      dragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+    window.addEventListener("mouseup", () => dragging = false);
+    window.addEventListener("mousemove", e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      if (e.shiftKey) {
+        cam.panX += dx * devicePixelRatio;
+        cam.panY += dy * devicePixelRatio;
+      } else {
+        cam.rotY += dx * 0.005;
+        cam.rotX += dy * 0.005;
+      }
+    });
+
+    canvas.addEventListener("wheel", e => {
+      cam.zoom *= e.deltaY > 0 ? 0.9 : 1.1;
+      e.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener("keydown", e => {
+      if (e.code === "Space") frozen = !frozen;
+    });
+
+    /* --------- Audio --------- */
+    document.getElementById("start").onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioCtx = new AudioContext();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+
+      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      const freq = new Uint8Array(analyser.frequencyBinCount);
+
+      function tick() {
+        requestAnimationFrame(tick);
+
+        if (!frozen) {
+          analyser.getByteFrequencyData(freq);
+          for (let i = HISTORY - 1; i > 0; i--)
+            landscape[i].set(landscape[i - 1]);
+
+          const step = Math.floor(freq.length / BINS);
+          for (let i = 0; i < BINS; i++)
+            landscape[0][i] = freq[i * step];
+        }
+
+        draw();
+      }
+      tick();
+    };
+  </script>
+</body>
+
+</html>
