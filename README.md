@@ -8,14 +8,14 @@ A comparison of how different AI models respond to the same prompt. Each file is
 
 ## Models
 
-| File | Model | Visualization |
-|------|-------|---------------|
-| `claude.html` | Claude | Isometric 3D waterfall with color-coded amplitude |
-| `gpt.html` | GPT | Scrolling spectrogram (time × frequency × color) |
-| `gpt2.html` | GPT | Dual canvas: waveform + frequency bars |
-| `gpt3.html` | GPT | Isometric 3D landscape with mouse rotation/pan/zoom |
-| `gemini.html` | Gemini | Scrolling spectrogram (time × frequency × color) |
-| `grok.html` | Grok | Waveform + scrolling spectrogram with custom gradient |
+| File          | Model  | Visualization                                         |
+| ------------- | ------ | ----------------------------------------------------- |
+| `claude.html` | Claude | Isometric 3D waterfall with color-coded amplitude     |
+| `gpt.html`    | GPT    | Scrolling spectrogram (time × frequency × color)      |
+| `gpt2.html`   | GPT    | Dual canvas: waveform + frequency bars                |
+| `gpt3.html`   | GPT    | Isometric 3D landscape with mouse rotation/pan/zoom   |
+| `gemini.html` | Gemini | Scrolling spectrogram (time × frequency × color)      |
+| `grok.html`   | Grok   | Waveform + scrolling spectrogram with custom gradient |
 
 ## Usage
 

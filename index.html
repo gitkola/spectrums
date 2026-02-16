@@ -141,7 +141,7 @@
     TABS.forEach((tab, i) => {
       // iframe (no src yet — lazy)
       const iframe = document.createElement("iframe");
-      iframe.setAttribute("allow", "microphone");
+      iframe.setAttribute("allow", "microphone *");
       iframe.dataset.src = tab.src;
       content.appendChild(iframe);
       iframes.push(iframe);
