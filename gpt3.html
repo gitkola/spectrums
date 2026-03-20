@@ -3,35 +3,117 @@
 
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Isometric Audio Landscape</title>
   <style>
+    * { box-sizing: border-box; }
+
     body {
       margin: 0;
       background: #0b0b0b;
       color: #ddd;
       font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      overflow: hidden;
     }
 
     header {
-      padding: 10px;
+      padding: 8px 12px;
       display: flex;
-      gap: 12px;
+      gap: 8px;
       align-items: center;
+      background: #111;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+      min-height: 52px;
     }
 
+    .icon-btn {
+      background: #222;
+      border: 1px solid #444;
+      color: #ddd;
+      border-radius: 10px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .icon-btn:hover { background: #2a2a2a; }
+    .icon-btn:active { background: #333; }
+    .icon-btn.active { background: #0d2a1a; border-color: #3a8; color: #4c9; }
+    .icon-btn:disabled { opacity: 0.35; cursor: default; }
+
     canvas {
-      width: 100vw;
-      height: calc(100vh - 48px);
+      flex: 1;
       display: block;
+      width: 100%;
+      touch-action: none;
+    }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 120px;
+    }
+
+    .slider-row label {
+      font-size: 11px;
+      color: #666;
+      width: 38px;
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .slider-row input[type=range] {
+      flex: 1;
+      accent-color: #6af;
+      height: 24px;
+      cursor: pointer;
     }
   </style>
 </head>
 
 <body>
   <header>
-    <button id="start">Start microphone</button>
-    <span>Drag=Rotate · Shift+Drag=Pan · Wheel=Zoom · Space=Freeze</span>
+    <!-- Microphone button -->
+    <button class="icon-btn" id="start" title="Start microphone">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+        <line x1="8" y1="22" x2="16" y2="22"/>
+      </svg>
+    </button>
+    <!-- Freeze button -->
+    <button class="icon-btn" id="freeze" title="Freeze / Resume" disabled>
+      <svg id="freeze-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="4" width="4" height="16"/>
+        <rect x="14" y="4" width="4" height="16"/>
+      </svg>
+    </button>
+    <div class="slider-row">
+      <label>X</label>
+      <input type="range" id="sliderRotX" min="-1.5" max="0.5" step="0.01" value="0.2">
+    </div>
+    <div class="slider-row">
+      <label>Y</label>
+      <input type="range" id="sliderRotY" min="-3.14" max="3.14" step="0.01" value="0.2">
+    </div>
+    <div class="slider-row">
+      <label>Z</label>
+      <input type="range" id="sliderRotZ" min="-3.14" max="3.14" step="0.01" value="0.2">
+    </div>
   </header>
+
   <canvas id="c"></canvas>
 
   <script>
@@ -51,8 +133,9 @@
 
     /* --------- Camera --------- */
     let cam = {
-      rotX: -0.6,
-      rotY: 0.8,
+      rotX: 0.2,
+      rotY: 0.2,
+      rotZ: 0.2,
       zoom: 1,
       panX: 0,
       panY: 0
@@ -74,11 +157,15 @@
       const c = Math.cos(a), s = Math.sin(a);
       return { x: p.x * c + p.z * s, y: p.y, z: -p.x * s + p.z * c };
     }
+    function rotateZ(p, a) {
+      const c = Math.cos(a), s = Math.sin(a);
+      return { x: p.x * c - p.y * s, y: p.x * s + p.y * c, z: p.z };
+    }
 
     function project(p) {
       let v = rotateX(p, cam.rotX);
       v = rotateY(v, cam.rotY);
-
+      v = rotateZ(v, cam.rotZ);
       return {
         x: (v.x - v.y) * cam.zoom + cam.panX,
         y: (v.x + v.y) * 0.5 * cam.zoom - v.z * cam.zoom + cam.panY
@@ -89,23 +176,15 @@
     function draw() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
-      ctx.translate(canvas.width / 2, canvas.height * 0.65);
+      ctx.translate(canvas.width / 2, canvas.height / 2);
 
       for (let t = HISTORY - 1; t >= 0; t--) {
         for (let f = 0; f < BINS - 1; f++) {
           const a1 = landscape[t][f];
           const a2 = landscape[t][f + 1];
 
-          const p1 = project({
-            x: f * 8,
-            y: t * 6,
-            z: a1
-          });
-          const p2 = project({
-            x: (f + 1) * 8,
-            y: t * 6,
-            z: a2
-          });
+          const p1 = project({ x: (f - (BINS - 1) / 2) * 8, y: (t - HISTORY / 2) * 6, z: a1 });
+          const p2 = project({ x: (f + 1 - (BINS - 1) / 2) * 8, y: (t - HISTORY / 2) * 6, z: a2 });
 
           ctx.beginPath();
           ctx.moveTo(p1.x, p1.y);
@@ -119,7 +198,23 @@
       ctx.restore();
     }
 
-    /* --------- Interaction --------- */
+    draw();
+
+    /* --------- Sliders --------- */
+    document.getElementById("sliderRotX").addEventListener("input", e => {
+      cam.rotX = parseFloat(e.target.value);
+      draw();
+    });
+    document.getElementById("sliderRotY").addEventListener("input", e => {
+      cam.rotY = parseFloat(e.target.value);
+      draw();
+    });
+    document.getElementById("sliderRotZ").addEventListener("input", e => {
+      cam.rotZ = parseFloat(e.target.value);
+      draw();
+    });
+
+    /* --------- Mouse (pan only) --------- */
     let dragging = false;
     let lastX = 0, lastY = 0;
 
@@ -131,18 +226,10 @@
     window.addEventListener("mouseup", () => dragging = false);
     window.addEventListener("mousemove", e => {
       if (!dragging) return;
-      const dx = e.clientX - lastX;
-      const dy = e.clientY - lastY;
+      cam.panX += (e.clientX - lastX) * devicePixelRatio;
+      cam.panY += (e.clientY - lastY) * devicePixelRatio;
       lastX = e.clientX;
       lastY = e.clientY;
-
-      if (e.shiftKey) {
-        cam.panX += dx * devicePixelRatio;
-        cam.panY += dy * devicePixelRatio;
-      } else {
-        cam.rotY += dx * 0.005;
-        cam.rotX += dy * 0.005;
-      }
     });
 
     canvas.addEventListener("wheel", e => {
@@ -150,12 +237,100 @@
       e.preventDefault();
     }, { passive: false });
 
+    /* --------- Touch (pan + pinch zoom) --------- */
+    let touches = {};
+    let lastPinchDist = null;
+    let lastTouchMid = null;
+
+    canvas.addEventListener("touchstart", e => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        touches[t.identifier] = { x: t.clientX, y: t.clientY };
+      }
+      updatePinchRef();
+    }, { passive: false });
+
+    canvas.addEventListener("touchmove", e => {
+      e.preventDefault();
+      const prev = {};
+      for (const id in touches) prev[id] = { ...touches[id] };
+
+      for (const t of e.changedTouches) {
+        touches[t.identifier] = { x: t.clientX, y: t.clientY };
+      }
+
+      const ids = Object.keys(touches);
+      if (ids.length === 1) {
+        const id = ids[0];
+        if (prev[id]) {
+          cam.panX += (touches[id].x - prev[id].x) * devicePixelRatio;
+          cam.panY += (touches[id].y - prev[id].y) * devicePixelRatio;
+        }
+      } else if (ids.length >= 2) {
+        const p0 = touches[ids[0]], p1 = touches[ids[1]];
+        const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+        const mid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+
+        if (lastPinchDist) cam.zoom *= dist / lastPinchDist;
+        if (lastTouchMid) {
+          cam.panX += (mid.x - lastTouchMid.x) * devicePixelRatio;
+          cam.panY += (mid.y - lastTouchMid.y) * devicePixelRatio;
+        }
+
+        lastPinchDist = dist;
+        lastTouchMid = mid;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener("touchend", e => {
+      for (const t of e.changedTouches) delete touches[t.identifier];
+      updatePinchRef();
+    }, { passive: false });
+
+    function updatePinchRef() {
+      const ids = Object.keys(touches);
+      if (ids.length < 2) {
+        lastPinchDist = null;
+        lastTouchMid = null;
+      } else {
+        const p0 = touches[ids[0]], p1 = touches[ids[1]];
+        lastPinchDist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+        lastTouchMid = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+      }
+    }
+
+    /* --------- Freeze button --------- */
+    const freezeBtn = document.getElementById("freeze");
+    const freezeIcon = document.getElementById("freeze-icon");
+
+    const PAUSE_ICON = `<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>`;
+    const PLAY_ICON  = `<polygon points="5 3 19 12 5 21 5 3"/>`;
+
+    function updateFreezeBtn() {
+      freezeIcon.innerHTML = frozen ? PLAY_ICON : PAUSE_ICON;
+      freezeBtn.classList.toggle("active", frozen);
+      freezeBtn.title = frozen ? "Resume" : "Freeze";
+    }
+
+    freezeBtn.addEventListener("click", () => {
+      frozen = !frozen;
+      updateFreezeBtn();
+    });
+
     window.addEventListener("keydown", e => {
-      if (e.code === "Space") frozen = !frozen;
+      if (e.code === "Space") {
+        frozen = !frozen;
+        updateFreezeBtn();
+      }
     });
 
     /* --------- Audio --------- */
-    document.getElementById("start").onclick = async () => {
+    const startBtn = document.getElementById("start");
+
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      startBtn.style.opacity = "0.5";
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const audioCtx = new AudioContext();
       const analyser = audioCtx.createAnalyser();
@@ -163,6 +338,12 @@
 
       audioCtx.createMediaStreamSource(stream).connect(analyser);
       const freq = new Uint8Array(analyser.frequencyBinCount);
+
+      freezeBtn.disabled = false;
+
+      // Switch mic icon to "active" mic (filled)
+      startBtn.classList.add("active");
+      startBtn.title = "Microphone active";
 
       function tick() {
         requestAnimationFrame(tick);
@@ -180,7 +361,7 @@
         draw();
       }
       tick();
-    };
+    });
   </script>
 </body>
 
